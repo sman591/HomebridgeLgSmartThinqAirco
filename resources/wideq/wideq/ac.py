@@ -3,6 +3,48 @@
 import enum
 
 from .client import Device
+from .util import lookup_enum
+from .core import FailedRequestError
+
+
+class ACVSwingMode(enum.Enum):
+    """The vertical swing mode for an AC/HVAC device.
+
+    Blades are numbered vertically from 1 (topmost)
+    to 6.
+
+    All is 100.
+    """
+    OFF = "@OFF"
+    ONE = "@1"
+    TWO = "@2"
+    THREE = "@3"
+    FOUR = "@4"
+    FIVE = "@5"
+    SIX = "@6"
+    ALL = "@100"
+
+
+class ACHSwingMode(enum.Enum):
+    """The horizontal swing mode for an AC/HVAC device.
+
+    Blades are numbered horizontally from 1 (leftmost)
+    to 5.
+
+    Left half goes from 1-3, and right half goes from
+    3-5.
+
+    All is 100.
+    """
+    OFF = "@OFF"
+    ONE = "@1"
+    TWO = "@2"
+    THREE = "@3"
+    FOUR = "@4"
+    FIVE = "@5"
+    LEFT_HALF = "@13"
+    RIGHT_HALF = "@35"
+    ALL = "@100"
 
 
 class ACMode(enum.Enum):
@@ -32,15 +74,46 @@ class ACFanSpeed(enum.Enum):
     HIGH = '@AC_MAIN_WIND_STRENGTH_HIGH_W'
     POWER = '@AC_MAIN_WIND_STRENGTH_POWER_W'
     AUTO = '@AC_MAIN_WIND_STRENGTH_AUTO_W'
+    NATURE = '@AC_MAIN_WIND_STRENGTH_NATURE_W'
+    R_LOW = '@AC_MAIN_WIND_STRENGTH_LOW_RIGHT_W'
+    R_MID = '@AC_MAIN_WIND_STRENGTH_MID_RIGHT_W'
+    R_HIGH = '@AC_MAIN_WIND_STRENGTH_HIGH_RIGHT_W'
+    L_LOW = '@AC_MAIN_WIND_STRENGTH_LOW_LEFT_W'
+    L_MID = '@AC_MAIN_WIND_STRENGTH_MID_LEFT_W'
+    L_HIGH = '@AC_MAIN_WIND_STRENGTH_HIGH_LEFT_W'
+    L_LOWR_LOW = '@AC_MAIN_WIND_STRENGTH_LOW_LEFT_W|' \
+        'AC_MAIN_WIND_STRENGTH_LOW_RIGHT_W'
+    L_LOWR_MID = '@AC_MAIN_WIND_STRENGTH_LOW_LEFT_W|' \
+        'AC_MAIN_WIND_STRENGTH_MID_RIGHT_W'
+    L_LOWR_HIGH = '@AC_MAIN_WIND_STRENGTH_LOW_LEFT_W|' \
+        'AC_MAIN_WIND_STRENGTH_HIGH_RIGHT_W'
+    L_MIDR_LOW = '@AC_MAIN_WIND_STRENGTH_MID_LEFT_W|' \
+        'AC_MAIN_WIND_STRENGTH_LOW_RIGHT_W'
+    L_MIDR_MID = '@AC_MAIN_WIND_STRENGTH_MID_LEFT_W|' \
+        'AC_MAIN_WIND_STRENGTH_MID_RIGHT_W'
+    L_MIDR_HIGH = '@AC_MAIN_WIND_STRENGTH_MID_LEFT_W|' \
+        'AC_MAIN_WIND_STRENGTH_HIGH_RIGHT_W'
+    L_HIGHR_LOW = '@AC_MAIN_WIND_STRENGTH_HIGH_LEFT_W|' \
+        'AC_MAIN_WIND_STRENGTH_LOW_RIGHT_W'
+    L_HIGHR_MID = '@AC_MAIN_WIND_STRENGTH_HIGH_LEFT_W|' \
+        'AC_MAIN_WIND_STRENGTH_MID_RIGHT_W'
+    L_HIGHR_HIGH = '@AC_MAIN_WIND_STRENGTH_HIGH_LEFT_W|' \
+        'AC_MAIN_WIND_STRENGTH_HIGH_RIGHT_W'
+    AUTO_2 = '@AC_MAIN_WIND_STRENGTH_AUTO_LEFT_W|' \
+        'AC_MAIN_WIND_STRENGTH_AUTO_RIGHT_W'
+    POWER_2 = '@AC_MAIN_WIND_STRENGTH_POWER_LEFT_W|' \
+        'AC_MAIN_WIND_STRENGTH_POWER_RIGHT_W'
+    LONGPOWER = '@AC_MAIN_WIND_STRENGTH_LONGPOWER_LEFT_W|' \
+        'AC_MAIN_WIND_STRENGTH_LONGPOWER_RIGHT_W'
 
 
 class ACOp(enum.Enum):
     """Whether a device is on or off."""
 
     OFF = "@AC_MAIN_OPERATION_OFF_W"
-    RIGHT_ON = "@AC_MAIN_OPERATION_RIGHT_ON_W"  # This one seems to mean "on"?
-    LEFT_ON = "@AC_MAIN_OPERATION_LEFT_ON_W"
-    ALL_ON = "@AC_MAIN_OPERATION_ALL_ON_W"
+    RIGHT_ON = "@AC_MAIN_OPERATION_RIGHT_ON_W"  # Right fan only.
+    LEFT_ON = "@AC_MAIN_OPERATION_LEFT_ON_W"  # Left fan only.
+    ALL_ON = "@AC_MAIN_OPERATION_ALL_ON_W"  # Both fans (or only fan) on.
 
 
 class ACDevice(Device):
@@ -131,6 +204,20 @@ class ACDevice(Device):
         speed_value = self.model.enum_value('WindStrength', speed.value)
         self._set_control('WindStrength', speed_value)
 
+    def set_horz_swing(self, swing):
+        """Set the horizontal swing to a value from the `ACHSwingMode` enum.
+        """
+
+        swing_value = self.model.enum_value('WDirHStep', swing.value)
+        self._set_control('WDirHStep', swing_value)
+
+    def set_vert_swing(self, swing):
+        """Set the vertical swing to a value from the `ACVSwingMode` enum.
+        """
+
+        swing_value = self.model.enum_value('WDirVStep', swing.value)
+        self._set_control('WDirVStep', swing_value)
+
     def set_mode(self, mode):
         """Set the device's operating mode to an `OpMode` value.
         """
@@ -142,7 +229,7 @@ class ACDevice(Device):
         """Turn on or off the device (according to a boolean).
         """
 
-        op = ACOp.RIGHT_ON if is_on else ACOp.OFF
+        op = ACOp.ALL_ON if is_on else ACOp.OFF
         op_value = self.model.enum_value('Operation', op.value)
         self._set_control('Operation', op_value)
 
@@ -171,8 +258,11 @@ class ACDevice(Device):
     def get_volume(self):
         """Get the speaker volume level."""
 
-        value = self._get_control('SpkVolume')
-        return int(value)
+        try:
+            value = self._get_control('SpkVolume')
+            return int(value)
+        except FailedRequestError:
+            return 0  # Device does not support volume control.
 
     def poll(self):
         """Poll the device's current state.
@@ -232,18 +322,23 @@ class ACStatus(object):
     def temp_cfg_f(self):
         return self.ac.c2f[self.temp_cfg_c]
 
-    def lookup_enum(self, key):
-        return self.ac.model.enum_name(key, self.data[key])
-
     @property
     def mode(self):
-        return ACMode(self.lookup_enum('OpMode'))
+        return ACMode(lookup_enum('OpMode', self.data, self.ac))
 
     @property
     def fan_speed(self):
-        return ACFanSpeed(self.lookup_enum('WindStrength'))
+        return ACFanSpeed(lookup_enum('WindStrength', self.data, self.ac))
+
+    @property
+    def horz_swing(self):
+        return ACHSwingMode(lookup_enum('WDirHStep', self.data, self.ac))
+
+    @property
+    def vert_swing(self):
+        return ACVSwingMode(lookup_enum('WDirVStep', self.data, self.ac))
 
     @property
     def is_on(self):
-        op = ACOp(self.lookup_enum('Operation'))
+        op = ACOp(lookup_enum('Operation', self.data, self.ac))
         return op != ACOp.OFF

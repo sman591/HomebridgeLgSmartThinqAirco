@@ -1,8 +1,12 @@
+#!/usr/bin/env python3
+
 import wideq
 import json
 import time
 import argparse
 import sys
+
+STATE_FILE = 'wideq_state.json'
 
 
 def authenticate(gateway):
@@ -23,6 +27,7 @@ def ls(client):
 
     for device in client.devices:
         print('{0.id}: {0.name} ({0.type.name} {0.model_id})'.format(device))
+        print(json.dumps(device.data, indent=4))
 
 
 def mon(client, device_id):
@@ -44,11 +49,9 @@ def mon(client, device_id):
                         res = model.decode_monitor(data)
                     except ValueError:
                         print('status data: {!r}'.format(data))
-                        sys.stdout.flush()
                     else:
                         for key, value in res.items():
                             try:
-                                desc = None
                                 desc = model.value(key)
                             except KeyError:
                                 print('- {}: {}'.format(key, value))
@@ -60,7 +63,6 @@ def mon(client, device_id):
                                 print('- {0}: {1} ({2.min}-{2.max})'.format(
                                     key, value, desc,
                                 ))
-                    sys.stdout.flush()
 
         except KeyboardInterrupt:
             pass
@@ -80,6 +82,11 @@ def ac_mon(client, device_id):
 
     try:
         ac.monitor_start()
+    except wideq.core.NotConnectedError:
+        print('Device not available.')
+        return
+
+    try:
         while True:
             time.sleep(1)
             state = ac.poll()
@@ -87,15 +94,14 @@ def ac_mon(client, device_id):
                 print(
                     '{1}; '
                     '{0.mode.name}; '
-                    'cur {0.temp_cur_c}°C; '
-                    'cfg {0.temp_cfg_c}°C; '
+                    'cur {0.temp_cur_f}°F; '
+                    'cfg {0.temp_cfg_f}°F; '
                     'fan speed {0.fan_speed.name}'
                     .format(
                         state,
                         'on' if state.is_on else 'off'
                     )
                 )
-                sys.stdout.flush()
 
     except KeyboardInterrupt:
         pass
@@ -124,7 +130,7 @@ def set_temp(client, device_id, temp):
     """Set the configured temperature for an AC device."""
 
     ac = wideq.ACDevice(client, _force_device(client, device_id))
-    ac.set_celsius(int(temp))
+    ac.set_fahrenheit(int(temp))
 
 
 def turn(client, device_id, on_off):
@@ -143,19 +149,6 @@ def ac_config(client, device_id):
     print(ac.get_light())
     print(ac.get_zones())
 
-def set_speed(client, device_id, speed):
-    ac = wideq.ACDevice(client, _force_device(client, device_id))
-    speed_mapping = {
-        '12.5': wideq.ACFanSpeed.SLOW, #Not supported
-        '25': wideq.ACFanSpeed.SLOW_LOW, #Not supported
-        '37.5': wideq.ACFanSpeed.LOW,
-        '50': wideq.ACFanSpeed.LOW_MID,
-        '62.5': wideq.ACFanSpeed.MID,
-        '75': wideq.ACFanSpeed.MID_HIGH,
-        '87.5': wideq.ACFanSpeed.HIGH,
-        '100': wideq.ACFanSpeed.POWER #Not supported
-    }
-    ac.set_fan_speed(speed_mapping[speed])
 
 EXAMPLE_COMMANDS = {
     'ls': ls,
@@ -164,23 +157,25 @@ EXAMPLE_COMMANDS = {
     'set-temp': set_temp,
     'turn': turn,
     'ac-config': ac_config,
-    'set_speed': set_speed,
 }
 
 
 def example_command(client, cmd, args):
-    func = EXAMPLE_COMMANDS[cmd]
+    func = EXAMPLE_COMMANDS.get(cmd)
+    if not func:
+        print("Invalid command: '{}'.\n"
+              "Use one of: {}".format(cmd, ', '.join(EXAMPLE_COMMANDS)),
+              file=sys.stderr)
+        return
     func(client, *args)
 
 
-def example(country, language, state_file, cmd, args):
+def example(country, language, cmd, args):
     # Load the current state for the example.
-
     try:
-        with open(state_file) as f:
+        with open(STATE_FILE) as f:
             state = json.load(f)
-    except IOError as e:
-        print(e)
+    except IOError:
         state = {}
 
     client = wideq.Client.load(state)
@@ -209,7 +204,7 @@ def example(country, language, state_file, cmd, args):
 
     # Save the updated state.
     state = client.dump()
-    with open(state_file, 'w') as f:
+    with open(STATE_FILE, 'w') as f:
         json.dump(state, f)
 
 
@@ -234,14 +229,9 @@ def main():
         help='language code for the API (default: {})'
         .format(wideq.DEFAULT_LANGUAGE)
     )
-    parser.add_argument(
-        '--state-file', '-s',
-        help='Absolute path to the state file (default: wideq_state.json)'
-        .format('wideq_state.json')
-    )
 
     args = parser.parse_args()
-    example(args.country, args.language, args.state_file, args.cmd, args.args)
+    example(args.country, args.language, args.cmd, args.args)
 
 
 if __name__ == '__main__':
